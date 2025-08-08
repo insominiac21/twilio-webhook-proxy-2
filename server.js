@@ -5,7 +5,7 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enhanced logging middleware
+// Logging middleware
 const logRequest = (req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.path}`);
@@ -15,19 +15,15 @@ const logRequest = (req, res, next) => {
   next();
 };
 
-// Security middleware
+// Security and rate limiting
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
   credentials: true
 }));
-
-// Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'), // 1 minute default
-  max: parseInt(process.env.RATE_LIMIT_MAX || '100'), // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.'
-  }
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'),
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
+  message: { error: 'Too many requests from this IP, please try again later.' }
 });
 app.use(limiter);
 app.use(logRequest);
@@ -51,63 +47,39 @@ app.get('/health', (req, res) => {
 app.all('/webhook/:service', async (req, res) => {
   const service = req.params.service;
   const targetUrl = process.env[`${service.toUpperCase()}_WEBHOOK_URL`];
-  
   if (!targetUrl) {
-    console.error(`No webhook URL configured for service: ${service}`);
-    return res.status(404).json({ 
+    return res.status(404).json({
       error: `Service ${service} not configured`,
       availableServices: Object.keys(process.env)
         .filter(key => key.endsWith('_WEBHOOK_URL'))
         .map(key => key.replace('_WEBHOOK_URL', '').toLowerCase())
     });
   }
-
   try {
-    console.log(`Forwarding ${req.method} to ${targetUrl}`);
-    
-    // Prepare request data
     let body;
+    let headers = { ...req.headers, 'User-Agent': req.get('User-Agent') || 'Railway-Proxy/1.0' };
     if (req.method !== 'GET') {
       if (req.is('application/x-www-form-urlencoded')) {
         body = new URLSearchParams(req.body).toString();
+        headers['Content-Type'] = req.get('Content-Type') || 'application/x-www-form-urlencoded; charset=UTF-8';
       } else if (req.is('application/json')) {
         body = JSON.stringify(req.body);
+        headers['Content-Type'] = req.get('Content-Type') || 'application/json';
       } else {
         body = req.body;
       }
     }
-    const requestData = {
-      method: req.method,
-      headers: {
-        ...req.headers,
-        'User-Agent': req.get('User-Agent') || 'Railway-Proxy/1.0',
-      },
-      body
-    };
-
-    // Remove host and content-length headers to avoid conflicts
-    delete requestData.headers.host;
-    delete requestData.headers['content-length'];
-
-    // Log outgoing body for debugging
+    delete headers.host;
+    delete headers['content-length'];
+    const requestData = { method: req.method, headers, body };
     console.log('Outgoing body:', body);
-
     const response = await fetch(targetUrl, requestData);
     const responseData = await response.text();
-
-    console.log(`Response status: ${response.status}`);
-    console.log(`Response data:`, responseData);
-
-    // Forward response
     res.status(response.status);
-    
-    // Copy response headers
     response.headers.forEach((value, name) => {
       res.set(name, value);
     });
-
     res.send(responseData);
-
   } catch (error) {
     console.error('Proxy error:', error);
     res.status(500).json({
@@ -125,7 +97,7 @@ app.post('/twilio-webhook', async (req, res) => {
   return app._router.handle(req, res);
 });
 
-// Current Twilio webhook endpoint (matches your screenshot)
+// Current Twilio webhook endpoint
 app.post('/whatsapp-webhook', async (req, res) => {
   req.url = '/webhook/n8n';
   req.params = { service: 'n8n' };
@@ -134,7 +106,6 @@ app.post('/whatsapp-webhook', async (req, res) => {
 
 // Catch-all endpoint for debugging
 app.all('*', (req, res) => {
-  console.log(`Unhandled request: ${req.method} ${req.path}`);
   res.status(404).json({
     error: 'Endpoint not found',
     path: req.path,
@@ -150,7 +121,6 @@ app.all('*', (req, res) => {
 
 // Global error handler
 app.use((error, req, res, next) => {
-  console.error('Global error:', error);
   res.status(500).json({
     error: 'Internal server error',
     message: error.message,
@@ -159,19 +129,15 @@ app.use((error, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Enhanced Railway Proxy Server running on port ${PORT}`);
+  console.log(`🚀 Railway Proxy Server running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 Webhook endpoint: http://localhost:${PORT}/webhook/:service`);
-  console.log(`⚙️  Environment: ${process.env.NODE_ENV || 'development'}`);
-  
-  // Log configured services
   const services = Object.keys(process.env)
     .filter(key => key.endsWith('_WEBHOOK_URL'))
     .map(key => ({
       service: key.replace('_WEBHOOK_URL', '').toLowerCase(),
       url: process.env[key]
     }));
-  
   if (services.length > 0) {
     console.log('\n📋 Configured webhook services:');
     services.forEach(({ service, url }) => {
