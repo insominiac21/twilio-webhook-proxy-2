@@ -2,7 +2,6 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -30,13 +29,12 @@ const limiter = rateLimit({
     error: 'Too many requests from this IP, please try again later.'
   }
 });
-
 app.use(limiter);
 app.use(logRequest);
 
-// Parse different content types
+// Use urlencoded with extended: false for Twilio compatibility
+app.use(bodyParser.urlencoded({ extended: false, limit: '10mb' }));
 app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use(bodyParser.raw({ type: 'application/xml', limit: '10mb' }));
 
 // Health check endpoint
@@ -68,23 +66,31 @@ app.all('/webhook/:service', async (req, res) => {
     console.log(`Forwarding ${req.method} to ${targetUrl}`);
     
     // Prepare request data
+    let body;
+    if (req.method !== 'GET') {
+      if (req.is('application/x-www-form-urlencoded')) {
+        body = new URLSearchParams(req.body).toString();
+      } else if (req.is('application/json')) {
+        body = JSON.stringify(req.body);
+      } else {
+        body = req.body;
+      }
+    }
     const requestData = {
       method: req.method,
       headers: {
-        'Content-Type': req.get('Content-Type') || 'application/json',
+        ...req.headers,
         'User-Agent': req.get('User-Agent') || 'Railway-Proxy/1.0',
-        ...req.headers
       },
-      body: req.method !== 'GET'
-  ? (req.is('application/x-www-form-urlencoded')
-      ? new URLSearchParams(req.body).toString()
-      : JSON.stringify(req.body))
-  : undefined
+      body
     };
 
-    // Remove host header to avoid conflicts
+    // Remove host and content-length headers to avoid conflicts
     delete requestData.headers.host;
     delete requestData.headers['content-length'];
+
+    // Log outgoing body for debugging
+    console.log('Outgoing body:', body);
 
     const response = await fetch(targetUrl, requestData);
     const responseData = await response.text();
@@ -175,4 +181,3 @@ app.listen(PORT, () => {
     console.log('\n⚠️  No webhook services configured. Set environment variables like N8N_WEBHOOK_URL');
   }
 });
-
