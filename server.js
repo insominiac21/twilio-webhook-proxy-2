@@ -115,6 +115,13 @@ app.post('/twilio-webhook', async (req, res) => {
   return app._router.handle(req, res);
 });
 
+// Current Twilio webhook endpoint (matches your screenshot)
+app.post('/whatsapp-webhook', async (req, res) => {
+  req.url = '/webhook/n8n';
+  req.params = { service: 'n8n' };
+  return app._router.handle(req, res);
+});
+
 // Catch-all endpoint for debugging
 app.all('*', (req, res) => {
   console.log(`Unhandled request: ${req.method} ${req.path}`);
