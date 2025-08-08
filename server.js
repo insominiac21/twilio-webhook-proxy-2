@@ -75,7 +75,11 @@ app.all('/webhook/:service', async (req, res) => {
         'User-Agent': req.get('User-Agent') || 'Railway-Proxy/1.0',
         ...req.headers
       },
-      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined
+      body: req.method !== 'GET'
+  ? (req.is('application/x-www-form-urlencoded')
+      ? new URLSearchParams(req.body).toString()
+      : JSON.stringify(req.body))
+  : undefined
     };
 
     // Remove host header to avoid conflicts
@@ -171,3 +175,4 @@ app.listen(PORT, () => {
     console.log('\n⚠️  No webhook services configured. Set environment variables like N8N_WEBHOOK_URL');
   }
 });
+
